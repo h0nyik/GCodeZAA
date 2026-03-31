@@ -5,11 +5,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version string (e.g. v0.2.0)"
-        required: false
-        default: "dev"
 
 permissions:
   contents: write
@@ -20,173 +15,87 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── macOS Apple Silicon (M1/M2/M3/M4) ─────────────────────────────
           - os: macos-15
             platform: macos-arm64
-            python: "3.12"
             artifact: GCodeZAA-macos-arm64.dmg
-            ext: dmg
 
-          # ── macOS Intel ────────────────────────────────────────────────────
           - os: macos-13
             platform: macos-x64
-            python: "3.12"
             artifact: GCodeZAA-macos-x64.dmg
-            ext: dmg
 
-          # ── Windows x64 ────────────────────────────────────────────────────
           - os: windows-latest
             platform: windows-x64
-            python: "3.12"
             artifact: GCodeZAA-windows-x64.zip
-            ext: zip
 
-          # ── Linux x86_64 (AppImage — běží na Ubuntu, Fedora, Debian, …) ──
           - os: ubuntu-22.04
             platform: linux-x64
-            python: "3.12"
             artifact: GCodeZAA-linux-x64.AppImage
-            ext: AppImage
 
-          # ── Linux ARM64 (Raspberry Pi 4/5 — 64-bit OS) ────────────────────
-          # Poznámka: open3d nemá ARM64 wheels → ZAA processing nedostupné,
-          # GUI se spustí ale zobrazí informativní chybovou hlášku při zpracování.
           - os: ubuntu-24.04-arm
             platform: linux-arm64
-            python: "3.12"
             artifact: GCodeZAA-linux-arm64.AppImage
-            ext: AppImage
-            no_open3d: true
+            no_open3d: "1"
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.platform }}
 
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────────
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # ── Python ──────────────────────────────────────────────────────────────
-      - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.12"
 
-      # ── System deps (Linux) ─────────────────────────────────────────────────
-      - name: Install system deps (Linux)
+      - name: System deps (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             python3-tk tk-dev libgl1 libglib2.0-0 \
-            libxcb-xinerama0 libxcb-cursor0 \
-            fuse libfuse2 file
+            libxcb-xinerama0 libxcb-cursor0 fuse libfuse2
 
-      # ── Python deps ─────────────────────────────────────────────────────────
-      - name: Install Python dependencies
+      - name: Python deps
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller customtkinter tkinterdnd2
 
-      - name: Install open3d (x86_64 only)
+      - name: Install open3d
         if: ${{ !matrix.no_open3d }}
         run: pip install open3d
 
-      - name: Install open3d stub (ARM — no official wheels)
-        if: ${{ matrix.no_open3d }}
-        run: |
-          echo "open3d not available for ARM — ZAA processing will show info dialog"
-          pip install numpy  # needed by gcodezaa stubs
+      - name: Build
+        env:
+          NO_OPEN3D: ${{ matrix.no_open3d || '0' }}
+        run: python build_ci.py
 
-      # ── Build with PyInstaller ───────────────────────────────────────────────
-      - name: Build (macOS / Linux)
-        if: runner.os != 'Windows'
-        run: |
-          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-          echo "Site-packages: $SITE"
-
-          # Compose --add-data args depending on platform separator
-          SEP=":"
-
-          PYINSTALLER_ARGS=(
-            gui.py
-            --name GCodeZAA
-            --windowed
-            --noconfirm
-            --clean
-            --add-data "gcodezaa${SEP}gcodezaa"
-            --add-data "${SITE}/customtkinter${SEP}customtkinter"
-            --add-data "${SITE}/tkinterdnd2${SEP}tkinterdnd2"
-            --hidden-import customtkinter
-            --hidden-import tkinterdnd2
-          )
-
-          if [ -z "${{ matrix.no_open3d }}" ]; then
-            PYINSTALLER_ARGS+=(--add-data "${SITE}/open3d${SEP}open3d")
-            PYINSTALLER_ARGS+=(--hidden-import open3d)
-          fi
-
-          pyinstaller "${PYINSTALLER_ARGS[@]}"
-
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $SITE = python -c "import site; print(site.getsitepackages()[0])"
-          Write-Host "Site-packages: $SITE"
-
-          pyinstaller gui.py `
-            --name GCodeZAA `
-            --windowed `
-            --noconfirm `
-            --clean `
-            "--add-data=gcodezaa;gcodezaa" `
-            "--add-data=$SITE\customtkinter;customtkinter" `
-            "--add-data=$SITE\tkinterdnd2;tkinterdnd2" `
-            "--add-data=$SITE\open3d;open3d" `
-            --hidden-import customtkinter `
-            --hidden-import tkinterdnd2 `
-            --hidden-import open3d
-
-      # ── Package: macOS DMG ───────────────────────────────────────────────────
       - name: Package DMG (macOS)
         if: runner.os == 'macOS'
         run: |
           hdiutil create \
             -volname "GCodeZAA" \
             -srcfolder "dist/GCodeZAA.app" \
-            -ov \
-            -format UDZO \
+            -ov -format UDZO \
             "dist/${{ matrix.artifact }}"
 
-      # ── Package: Windows ZIP ─────────────────────────────────────────────────
       - name: Package ZIP (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          Compress-Archive -Path "dist\GCodeZAA\*" -DestinationPath "dist\${{ matrix.artifact }}"
+        run: Compress-Archive -Path "dist\GCodeZAA\*" -DestinationPath "dist\${{ matrix.artifact }}"
 
-      # ── Package: Linux AppImage ──────────────────────────────────────────────
       - name: Package AppImage (Linux)
         if: runner.os == 'Linux'
         run: |
-          # Download appimagetool
           ARCH=$(uname -m)
-          if [ "$ARCH" = "aarch64" ]; then
-            TOOL_ARCH="aarch64"
-          else
-            TOOL_ARCH="x86_64"
-          fi
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${TOOL_ARCH}.AppImage" \
-            -O appimagetool
+          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" -O appimagetool
           chmod +x appimagetool
 
-          # Build AppDir structure
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/bin
 
+          # Copy PyInstaller output
           cp -r dist/GCodeZAA/* AppDir/usr/bin/
 
-          cat > AppDir/GCodeZAA.desktop << EOF
+          # Desktop entry
+          cat > AppDir/GCodeZAA.desktop << 'EOF'
           [Desktop Entry]
           Name=GCodeZAA
           Exec=GCodeZAA
@@ -195,64 +104,45 @@ jobs:
           Categories=Utility;
           EOF
 
-          # Placeholder icon (replace with real icon if available)
+          # Icon
           if [ -f assets/icon.png ]; then
-            cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/gcodezaa.png
             cp assets/icon.png AppDir/gcodezaa.png
           else
-            # Create minimal valid PNG (1x1 transparent)
             python3 -c "
           import struct, zlib
-          def png1x1():
-              sig = b'\x89PNG\r\n\x1a\n'
-              def chunk(name, data):
-                  c = struct.pack('>I', len(data)) + name + data
-                  return c + struct.pack('>I', zlib.crc32(name + data) & 0xffffffff)
-              ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0))
-              idat = chunk(b'IDAT', zlib.compress(b'\x00\x00\xd4\xff\xff'))
-              iend = chunk(b'IEND', b'')
-              return sig + ihdr + idat + iend
-          open('AppDir/gcodezaa.png','wb').write(png1x1())
-          open('AppDir/usr/share/icons/hicolor/256x256/apps/gcodezaa.png','wb').write(png1x1())
+          sig = b'\x89PNG\r\n\x1a\n'
+          def chunk(t,d): c=struct.pack('>I',len(d))+t+d; return c+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+          data = sig+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b'\x00\x00\xd4\xff\xff'))+chunk(b'IEND',b'')
+          open('AppDir/gcodezaa.png','wb').write(data)
             "
           fi
 
-          ln -sf usr/bin/GCodeZAA AppDir/AppRun 2>/dev/null || true
-          chmod +x AppDir/usr/bin/GCodeZAA 2>/dev/null || true
+          # AppRun
+          printf '#!/bin/sh\ncd "$(dirname "$0")"\nexec ./usr/bin/GCodeZAA "$@"\n' > AppDir/AppRun
+          chmod +x AppDir/AppRun
 
-          ARCH=${TOOL_ARCH} ./appimagetool AppDir "dist/${{ matrix.artifact }}" 2>&1 || true
+          ARCH=${ARCH} ./appimagetool AppDir "dist/${{ matrix.artifact }}" || \
+            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist GCodeZAA
 
-          # Fallback: tar.gz if AppImage fails
-          if [ ! -f "dist/${{ matrix.artifact }}" ]; then
-            echo "AppImage failed, creating tar.gz fallback"
-            FALLBACK="${{ matrix.artifact }}.tar.gz"
-            tar -czf "dist/${FALLBACK}" -C dist GCodeZAA
-            echo "ARTIFACT_NAME=${FALLBACK}" >> $GITHUB_ENV
-          fi
-
-      # ── Upload artifact ──────────────────────────────────────────────────────
-      - name: Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.tar.gz
           if-no-files-found: warn
 
-  # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts/
           merge-multiple: true
-
-      - name: List artifacts
-        run: ls -lh artifacts/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -265,23 +155,18 @@ jobs:
 
             ### Stažení
 
-            | Platforma | Soubor |
-            |-----------|--------|
-            | macOS Apple Silicon (M1/M2/M3/M4) | `GCodeZAA-macos-arm64.dmg` |
-            | macOS Intel | `GCodeZAA-macos-x64.dmg` |
-            | Windows 10/11 (x64) | `GCodeZAA-windows-x64.zip` — rozbal a spusť `GCodeZAA.exe` |
-            | Linux x86_64 (Ubuntu/Fedora/Debian/…) | `GCodeZAA-linux-x64.AppImage` — `chmod +x` + spusť |
-            | Linux ARM64 (Raspberry Pi 4/5 64-bit) | `GCodeZAA-linux-arm64.AppImage` — ZAA processing nedostupné¹ |
+            | Platforma | Soubor | Poznámka |
+            |-----------|--------|----------|
+            | macOS Apple Silicon (M1/M2/M3/M4) | `GCodeZAA-macos-arm64.dmg` | |
+            | macOS Intel | `GCodeZAA-macos-x64.dmg` | |
+            | Windows 10/11 x64 | `GCodeZAA-windows-x64.zip` | Rozbal, spusť `GCodeZAA.exe` |
+            | Linux x86_64 | `GCodeZAA-linux-x64.AppImage` | `chmod +x`, pak spusť |
+            | Linux ARM64 (Raspberry Pi 4/5) | `GCodeZAA-linux-arm64.AppImage` | GUI funkční, ZAA bez open3d¹ |
 
-            > ¹ open3d nemá oficiální ARM64 Python wheels. GUI se spustí, ale ZAA
-            > zpracování není k dispozici na ARM platformách.
+            > ¹ open3d nemá oficiální Linux ARM64 wheels. ZAA processing bude přidán
+            > až open3d vydá ARM64 build, nebo po migraci na cross-platform raycasting.
 
-            ### Požadavky
-            - Klipper firmware s `EXCLUDE_OBJECT_DEFINE` podporou
-            - STL soubory musí být ve stejné složce jako G-code
-
-            ### Fork od
+            ### Fork
             [Theaninova/GCodeZAA](https://github.com/Theaninova/GCodeZAA)
           files: artifacts/**
-          draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
