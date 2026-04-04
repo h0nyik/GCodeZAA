@@ -19,6 +19,10 @@ jobs:
             platform: macos-arm64
             artifact: GCodeZAA-macos-arm64.dmg
 
+          - os: [self-hosted, macos, x64]
+            platform: macos-x64
+            artifact: GCodeZAA-macos-x64.dmg
+
           - os: windows-latest
             platform: windows-x64
             artifact: GCodeZAA-windows-x64-Setup.exe
@@ -161,6 +165,7 @@ jobs:
             | Platforma | Soubor | Poznámka |
             |-----------|--------|----------|
             | macOS Apple Silicon (M1/M2/M3/M4) | `GCodeZAA-macos-arm64.dmg` | |
+            | macOS Intel | `GCodeZAA-macos-x64.dmg` | |
             | Windows 10/11 x64 | `GCodeZAA-windows-x64-Setup.exe` | Spusť installer, vytvoří zástupce |
             | Linux x86_64 | `GCodeZAA-linux-x64.AppImage` | `chmod +x`, pak spusť |
             | Linux ARM64 (Raspberry Pi 4/5) | `GCodeZAA-linux-arm64.AppImage` | GUI funkční, ZAA bez open3d¹ |
