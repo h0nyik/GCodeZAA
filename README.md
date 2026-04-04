@@ -4,6 +4,8 @@
 > adding a graphical user interface (GUI) and pre-built installers for macOS, Windows and Linux.
 > All credit for the core ZAA algorithm goes to the original author.
 
+![GCodeZAA GUI screenshot](assets/screenshot.png)
+
 ## Downloads
 
 | Platform | File |
