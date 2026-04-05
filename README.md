@@ -25,6 +25,10 @@
 - **Log panel** — real-time processing output with color coding
 - **G-code analyzer** — instant slicer detection, layer count, object count
 - **Multi-platform CI** — GitHub Actions builds for every release
+- **CS / EN / DE localization** — language switcher in settings, restart-free
+- **Verbose mode** — toggle detailed ZAA stats (segment counts per line type, timing, file size)
+- **File logging** — persistent log at `~/Library/Logs/GCodeZAA/gcodezaa.log` (macOS) with rotation
+- **Bug reporting** — one-click opens a pre-filled GitHub issue with auto-uploaded log (anonymous Gist)
 
 ## GUI Usage
 
